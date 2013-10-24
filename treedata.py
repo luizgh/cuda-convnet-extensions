@@ -57,12 +57,15 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
     def get_next_batch(self):
         epoch, batchnum, datadic = LabeledMemoryDataProvider.get_next_batch(self)
 
-        cropped = self.cropped_data[self.batches_generated % 2]
+        cropped = n.zeros((self.get_data_dims(), datadic['data'].shape[1]), dtype = n.single)
 
-        self.__trim_borders(datadic['data'], cropped)
+        self.trim_borders(datadic['data'], cropped)
         cropped -= self.data_mean
         self.batches_generated += 1
         return epoch, batchnum, [cropped, datadic['labels']]
+
+    def get_filename(self):
+        return self.data_dic[0]['filenames']
         
     def get_data_dims(self, idx=0):
         return self.inner_size**2 * 3 if idx == 0 else 1
@@ -74,7 +77,7 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
     def get_plottable_data(self, data):
         return n.require((data + self.data_mean).T.reshape(data.shape[1], 3, self.inner_size, self.inner_size).swapaxes(1,3).swapaxes(1,2) / 255.0, dtype=n.single)
     
-    def __trim_borders(self, x, target):
+    def trim_borders(self, x, target):
         y = x.reshape(3, 64, 64, x.shape[1])
 
         if self.test: # don't need to loop over cases

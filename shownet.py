@@ -48,7 +48,7 @@ class ShowConvNet(ConvNet):
         ConvNet.__init__(self, op, load_dic)
     
     def get_gpus(self):
-        self.need_gpu = self.op.get_value('show_preds') or self.op.get_value('write_features')
+        self.need_gpu = self.op.get_value('show_preds') or self.op.get_value('write_features') or self.op.get_value('confusion_matrix')
         if self.need_gpu:
             ConvNet.get_gpus(self)
     
@@ -67,7 +67,7 @@ class ShowConvNet(ConvNet):
             
     def init_model_state(self):
         #ConvNet.init_model_state(self)
-        if self.op.get_value('show_preds'):
+        if self.op.get_value('show_preds') or self.op.get_value('confusion_matrix'):
             self.sotmax_idx = self.get_layer_idx(self.op.get_value('show_preds'), check_type='softmax')
         if self.op.get_value('write_features'):
             self.ftr_layer_idx = self.get_layer_idx(self.op.get_value('write_features'))
@@ -255,7 +255,83 @@ class ShowConvNet(ConvNet):
                 break
         pickle(os.path.join(self.feature_path, 'batches.meta'), {'source_model':self.load_file,
                                                                  'num_vis':num_ftrs})
-                
+    def get_predictions(self):
+        data = self.get_next_batch(train=False)[2] # get a test batch
+        num_classes = self.test_data_provider.get_num_classes()
+        
+        label_names = self.test_data_provider.batch_meta['label_names']
+        preds = n.zeros((data[0].shape[1], num_classes), dtype=n.single)
+        data += [preds]
+
+        # Run the model
+        self.libmodel.startFeatureWriter(data, self.sotmax_idx)
+        self.finish_batch()
+
+        return preds
+
+    def get_predictions_and_actuals(self):
+        data = self.get_next_batch(train=False)[2] # get a test batch
+        num_classes = self.test_data_provider.get_num_classes()
+        
+        label_names = self.test_data_provider.batch_meta['label_names']
+        preds = n.zeros((data[0].shape[1], num_classes), dtype=n.single)
+        data += [preds]
+
+        # Run the model
+        self.libmodel.startFeatureWriter(data, self.sotmax_idx)
+        self.finish_batch()
+
+        prediction = preds.argmax(axis=1)
+        actual = data[1][0,:]
+
+        return prediction, actual
+    
+    def print_confusion_matrix(self):
+        num_classes = model.test_data_provider.get_num_classes()
+        confusion_matrix = numpy.zeros((num_classes, num_classes))
+       
+        (prediction, actual) = self.get_predictions_and_actuals()
+
+        for i in range (prediction.shape[0]):
+            if (prediction[i] != actual[i]):
+                confusion_matrix[actual[i], prediction[i]] += 1
+        print confusion_matrix
+        numpy.save('confusion_matrix.npy', confusion_matrix)
+
+    def print_file_accuracy(self):
+        (prediction, actual) = self.get_predictions_and_actuals()
+
+        filenames = self.test_data_provider.get_filename()
+        indices = numpy.arange(len(filenames))
+        pair_files_indices = [(filenames[i], indices[i]) for i in range(len(filenames))]
+
+        uniqueFiles = list(set(filenames))
+        filePredictions = numpy.zeros(len(uniqueFiles))
+        fileActuals = numpy.asarray([int(f[0:2])-1 for f in uniqueFiles])
+        allFilePredictions = []
+
+        from scipy.stats import mode
+
+        for i in range (len(uniqueFiles)):
+            wanted = [index for (f,index) in pair_files_indices if f == uniqueFiles[i]]
+            currentFilePredictions = prediction[wanted]
+            allFilePredictions.append(currentFilePredictions)
+            filePredictions[i] = mode(currentFilePredictions)[0][0]
+
+        patchAccuracy = numpy.sum(prediction == actual) * 1.0 / prediction.shape[0]
+        fileAccuracy = numpy.sum(filePredictions == fileActuals) *1.0 / filePredictions.shape[0]
+        indexErrors = numpy.where(filePredictions != fileActuals)[0].tolist()
+        actual_vs_predicted = numpy.asarray([fileActuals[indexErrors],filePredictions[indexErrors]]).T
+
+        fileErrors = numpy.asarray(uniqueFiles)[indexErrors].tolist()
+        print('Patch accuracy: %f' % patchAccuracy)
+        print('File accuracy: %f' % fileAccuracy)
+        print('Incorrect Files: %s' % fileErrors)
+        print('Actual | Predicted: ')
+        print(actual_vs_predicted)
+
+
+
     def start(self):
         self.op.print_values()
         if self.show_cost:
@@ -266,6 +342,10 @@ class ShowConvNet(ConvNet):
             self.plot_predictions()
         if self.write_features:
             self.do_write_features()
+        if self.confusion_matrix:
+           self.print_confusion_matrix()
+        if self.file_accuracy:
+           self.print_file_accuracy()
         pl.show()
         sys.exit(0)
             
@@ -273,7 +353,7 @@ class ShowConvNet(ConvNet):
     def get_options_parser(cls):
         op = ConvNet.get_options_parser()
         for option in list(op.options):
-            if option not in ('gpu', 'load_file', 'train_batch_range', 'test_batch_range'):
+            if option not in ('gpu', 'load_file', 'train_batch_range', 'test_batch_range', 'multiview_test'):
                 op.delete_option(option)
         op.add_option("show-cost", "show_cost", StringOptionParser, "Show specified objective function", default="")
         op.add_option("show-filters", "show_filters", StringOptionParser, "Show learned filters in specified layer", default="")
@@ -286,6 +366,8 @@ class ShowConvNet(ConvNet):
         op.add_option("only-errors", "only_errors", BooleanOptionParser, "Show only mistaken predictions (to be used with --show-preds)", default=False, requires=['show_preds'])
         op.add_option("write-features", "write_features", StringOptionParser, "Write test data features from given layer", default="", requires=['feature-path'])
         op.add_option("feature-path", "feature_path", StringOptionParser, "Write test data features to this path (to be used with --write-features)", default="")
+        op.add_option("confusion-matrix", "confusion_matrix", BooleanOptionParser, "Prints the confusion matrix (rows: actual classes; cols: predicted classes", default=False)
+        op.add_option("file-accuracy", "file_accuracy", BooleanOptionParser, "Prints the accuracy on the patches and on the files (combining all patch predictions for a file)", default=False)
         
         op.options['load_file'].default = None
         return op
