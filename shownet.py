@@ -33,6 +33,7 @@ import random as r
 import numpy.random as nr
 from convnet import ConvNet
 from options import *
+from MLTools import ModelEvaluation
 
 try:
     import pylab as pl
@@ -269,22 +270,10 @@ class ShowConvNet(ConvNet):
 
         return preds
 
-    def get_predictions_and_actuals(self):
+    def get_labels(self):
         data = self.get_next_batch(train=False)[2] # get a test batch
-        num_classes = self.test_data_provider.get_num_classes()
-        
-        label_names = self.test_data_provider.batch_meta['label_names']
-        preds = n.zeros((data[0].shape[1], num_classes), dtype=n.single)
-        data += [preds]
-
-        # Run the model
-        self.libmodel.startFeatureWriter(data, self.sotmax_idx)
-        self.finish_batch()
-
-        prediction = preds.argmax(axis=1)
         actual = data[1][0,:]
-
-        return prediction, actual
+        return actual
     
     def print_confusion_matrix(self):
         num_classes = model.test_data_provider.get_num_classes()
@@ -298,38 +287,28 @@ class ShowConvNet(ConvNet):
         print confusion_matrix
         numpy.save('confusion_matrix.npy', confusion_matrix)
 
+
     def print_file_accuracy(self):
-        (prediction, actual) = self.get_predictions_and_actuals()
+        probs = self.get_predictions()
+        labels = self.get_labels()
+
+        patchPredictions = ModelEvaluation.GetPredictions(probs)
+        patchAccuracy, patchErrors = ModelEvaluation.CalculateAccuracy(patchPredictions,  labels)
+
 
         filenames = self.test_data_provider.get_filename()
-        indices = numpy.arange(len(filenames))
-        pair_files_indices = [(filenames[i], indices[i]) for i in range(len(filenames))]
+        fileProbs, fileLabels, fileIDs = ModelEvaluation.GetUnormalizedJointLogProbability(probs, labels, filenames)
+        filePredictions = ModelEvaluation.GetPredictions(fileProbs)
+        fileAccuracy, misclassifiedFiles = ModelEvaluation.CalculateAccuracy(filePredictions, fileLabels)
 
-        uniqueFiles = list(set(filenames))
-        filePredictions = numpy.zeros(len(uniqueFiles))
-        fileActuals = numpy.asarray([int(f[0:2])-1 for f in uniqueFiles])
-        allFilePredictions = []
+	fileErrors = numpy.asarray(fileIDs)[misclassifiedFiles].tolist()
 
-        from scipy.stats import mode
-
-        for i in range (len(uniqueFiles)):
-            wanted = [index for (f,index) in pair_files_indices if f == uniqueFiles[i]]
-            currentFilePredictions = prediction[wanted]
-            allFilePredictions.append(currentFilePredictions)
-            filePredictions[i] = mode(currentFilePredictions)[0][0]
-
-        patchAccuracy = numpy.sum(prediction == actual) * 1.0 / prediction.shape[0]
-        fileAccuracy = numpy.sum(filePredictions == fileActuals) *1.0 / filePredictions.shape[0]
-        indexErrors = numpy.where(filePredictions != fileActuals)[0].tolist()
-        actual_vs_predicted = numpy.asarray([fileActuals[indexErrors],filePredictions[indexErrors]]).T
-
-        fileErrors = numpy.asarray(uniqueFiles)[indexErrors].tolist()
+        actual_vs_predicted = numpy.asarray([numpy.asarray(filePredictions)[misclassifiedFiles], numpy.asarray(fileLabels)[misclassifiedFiles], numpy.asarray(fileIDs)[misclassifiedFiles]]).T
         print('Patch accuracy: %f' % patchAccuracy)
         print('File accuracy: %f' % fileAccuracy)
         print('Incorrect Files: %s' % fileErrors)
-        print('Actual | Predicted: ')
+        print(' Predicted | Actual | filename: ')
         print(actual_vs_predicted)
-
 
 
     def start(self):
