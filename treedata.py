@@ -1,4 +1,5 @@
 from data import *
+import numpy
 import numpy.random as nr
 import numpy as n
 import random as r
@@ -8,7 +9,7 @@ class TREEDataProvider(LabeledMemoryDataProvider):
         LabeledMemoryDataProvider.__init__(self, data_dir, batch_range, init_epoch, init_batchnum, dp_params, test)
         self.data_mean = self.batch_meta['data_mean']
         self.num_colors = 3
-        self.img_size = 64 
+        self.img_size = 64
         # Subtract the mean from the data and make sure that both data and
         # labels are in single-precision floating point.
         for d in self.data_dic:
@@ -38,8 +39,10 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
     def __init__(self, data_dir, batch_range=None, init_epoch=1, init_batchnum=None, dp_params=None, test=False):
         LabeledMemoryDataProvider.__init__(self, data_dir, batch_range, init_epoch, init_batchnum, dp_params, test)
 
+        self.total_size = int(n.sqrt(self.data_dic[0]['data'].shape[0] / 3))
+        
         self.border_size = dp_params['crop_border']
-        self.inner_size = 256 - self.border_size*2
+        self.inner_size = self.total_size - self.border_size*2
         self.multiview = dp_params['multiview_test'] and test
         self.num_views = 5*2
         self.data_mult = self.num_views if self.multiview else 1
@@ -52,8 +55,43 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
         self.cropped_data = [n.zeros((self.get_data_dims(), self.data_dic[0]['data'].shape[1]*self.data_mult), dtype=n.single) for x in xrange(2)]
 
         self.batches_generated = 0
-        self.data_mean = self.batch_meta['data_mean'].reshape((3,256,256))[:,self.border_size:self.border_size+self.inner_size,self.border_size:self.border_size+self.inner_size].reshape((self.get_data_dims(), 1))
+        self.data_mean = self.batch_meta['data_mean'].reshape((3,self.total_size,self.total_size))[:,self.border_size:self.border_size+self.inner_size,self.border_size:self.border_size+self.inner_size].reshape((self.get_data_dims(), 1))
 
+    def get_patches_and_filenames(self):
+        epoch, batchnum, data = LabeledMemoryDataProvider.get_next_batch(self)
+        X = data['data']
+        y = data['labels']
+        filenames = data['filenames']
+
+        imgSize = int(numpy.sqrt(X.shape[0] /3))
+        patchSize = self.inner_size
+        nPatches_1D = imgSize / patchSize
+
+        TotalNumberOfImages = X.shape[1]
+        TotalNumberOfPatches = TotalNumberOfImages * nPatches_1D* nPatches_1D
+
+        newX = numpy.zeros((3*patchSize*patchSize, TotalNumberOfPatches))
+        newY = numpy.zeros((1, TotalNumberOfPatches))
+        patchFilenames = []
+
+        currentPatch = 0
+        for i in range (TotalNumberOfImages):
+            item = X[:,i].reshape(3,imgSize,imgSize)
+            for row in range(nPatches_1D):
+                for col in range(nPatches_1D):
+                    patch = item[:,row*patchSize:(row+1)*patchSize, col*patchSize: (col+1)*patchSize]
+                    newX[:,currentPatch] = patch.reshape(-1)
+                    newY[:,currentPatch] = y[:,i]
+                    patchFilenames.append(filenames[i])
+                    currentPatch +=1
+
+        newX = newX - self.data_mean
+        newX = numpy.require(newX, dtype=numpy.float32, requirements='C')
+        newY = numpy.require(newY, dtype=numpy.float32, requirements='C')
+
+        data = [newX, newY]
+        return epoch, batchnum, data, patchFilenames
+        
     def get_next_batch(self):
         epoch, batchnum, datadic = LabeledMemoryDataProvider.get_next_batch(self)
 
@@ -78,7 +116,7 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
         return n.require((data + self.data_mean).T.reshape(data.shape[1], 3, self.inner_size, self.inner_size).swapaxes(1,3).swapaxes(1,2) / 255.0, dtype=n.single)
     
     def trim_borders(self, x, target):
-        y = x.reshape(3, 256,256, x.shape[1])
+        y = x.reshape(3, self.total_size, self.total_size, x.shape[1])
 
         if self.test: # don't need to loop over cases
             if self.multiview:
