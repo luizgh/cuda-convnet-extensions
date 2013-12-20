@@ -218,7 +218,12 @@ class ShowConvNet(ConvNet):
                 pl.xticks([])
                 pl.yticks([])
                 img = data[0][img_idx,:,:,:]
-                pl.imshow(img, interpolation='nearest')
+                numcolors = img.shape[2]
+                if numcolors == 3:
+                    pl.imshow(img, interpolation='nearest')
+                else:
+                    img = img.squeeze()
+                    pl.imshow(img, cmap=pl.cm.gray, interpolation = 'nearest')
                 true_label = int(data[1][0,img_idx])
 
                 img_labels = sorted(zip(preds[img_idx,:], label_names), key=lambda x: x[0])[-NUM_TOP_CLASSES:]

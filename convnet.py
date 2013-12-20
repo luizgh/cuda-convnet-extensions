@@ -33,6 +33,7 @@ import sys
 import math as m
 import layer as lay
 from convdata import *
+from monthdata import *
 from os import linesep as NL
 #import pylab as pl
 
@@ -195,6 +196,7 @@ class ConvNet(IGPUModel):
         DataProvider.register_data_provider('cifar-cropped', 'Cropped CIFAR', CroppedCIFARDataProvider)
         DataProvider.register_data_provider('tree', 'Trees', TREEDataProvider)
         DataProvider.register_data_provider('tree-cropped', 'CroppedTrees', CroppedTREEDataProvider)
+        DataProvider.register_data_provider('month', 'Months', MONTHDataProvider)
 
         
         return op
