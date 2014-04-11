@@ -8,16 +8,19 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
     def __init__(self, data_dir, batch_range=None, init_epoch=1, init_batchnum=None, dp_params=None, test=False):
         LabeledMemoryDataProvider.__init__(self, data_dir, batch_range, init_epoch, init_batchnum, dp_params, test)
 
-        size = self.data_dic[0]['data'].shape[0]
-        if abs(int(numpy.sqrt(size)) - numpy.sqrt(size)) > 1e-4:
-            self.colors=3
+        #Get image size, and if colors are being used
+        size = self.batch_meta['data_shape']
+        if len(size) > 2:
+            self.colors = size[2]
         else:
             self.colors=1
 
-        self.total_size = int(n.sqrt(self.data_dic[0]['data'].shape[0] / self.colors))
+        self.size_r, self.size_c = size[0], size[1]
         
-        self.border_size = dp_params['crop_border']
-        self.inner_size = self.total_size - self.border_size*2
+        #Get command-line parameters
+        self.inner_size = dp_params['patch_size']
+        self.border_size_r = (self.size_r - self.inner_size) / 2
+        self.border_size_c = (self.size_c - self.inner_size) / 2
         self.multiview = dp_params['multiview_test'] and test
         self.num_views = 5*2
         self.data_mult = self.num_views if self.multiview else 1
@@ -30,20 +33,21 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
         self.cropped_data = [n.zeros((self.get_data_dims(), self.data_dic[0]['data'].shape[1]*self.data_mult), dtype=n.single) for x in xrange(2)]
 
         self.batches_generated = 0
-        self.data_mean = self.batch_meta['data_mean'].reshape((self.colors,self.total_size,self.total_size))[:,self.border_size:self.border_size+self.inner_size,self.border_size:self.border_size+self.inner_size].reshape((self.get_data_dims(), 1))
+        self.data_mean = self.batch_meta['data_mean'].reshape((self.colors,self.size_r,self.size_c))[:,self.border_size_r:self.border_size_r+self.inner_size,self.border_size_c:self.border_size_c+self.inner_size].reshape((self.get_data_dims(), 1))
 
+        #For test, extract the grid patches of the image
         if self.test:
             data = self.data_dic[0]
             X = data['data']
             y = data['labels']
             filenames = data['filenames']
 
-            imgSize = int(numpy.sqrt(X.shape[0] / self.colors))
             patchSize = self.inner_size
-            nPatches_1D = imgSize / patchSize
+            nPatches_r = self.size_r / patchSize
+            nPatches_c = self.size_c / patchSize
 
             TotalNumberOfImages = X.shape[1]
-            TotalNumberOfPatches = TotalNumberOfImages * nPatches_1D* nPatches_1D
+            TotalNumberOfPatches = TotalNumberOfImages * nPatches_r* nPatches_c
 
             newX = numpy.zeros((self.colors*patchSize*patchSize, TotalNumberOfPatches))
             newY = numpy.zeros((1, TotalNumberOfPatches))
@@ -51,9 +55,9 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
 
             currentPatch = 0
             for i in range (TotalNumberOfImages):
-                item = X[:,i].reshape(self.colors,imgSize,imgSize)
-                for row in range(nPatches_1D):
-                    for col in range(nPatches_1D):
+                item = X[:,i].reshape(self.colors,self.size_r,self.size_c)
+                for row in range(nPatches_r):
+                    for col in range(nPatches_c):
                         patch = item[:,row*patchSize:(row+1)*patchSize, col*patchSize: (col+1)*patchSize]
                         newX[:,currentPatch] = patch.reshape(-1)
                         newY[:,currentPatch] = y[:,i]
@@ -96,24 +100,14 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
         return n.require((data + self.data_mean).T.reshape(data.shape[1], self.colors, self.inner_size, self.inner_size).swapaxes(1,3).swapaxes(1,2) / 255.0, dtype=n.single)
     
     def trim_borders(self, x, target):
-        y = x.reshape(self.colors, self.total_size, self.total_size, x.shape[1])
+        y = x.reshape(self.colors, self.size_r, self.size_c, x.shape[1])
 
         if self.test: # don't need to loop over cases
-            if self.multiview:
-                start_positions = [(0,0),  (0, self.border_size*2),
-                                   (self.border_size, self.border_size),
-                                  (self.border_size*2, 0), (self.border_size*2, self.border_size*2)]
-                end_positions = [(sy+self.inner_size, sx+self.inner_size) for (sy,sx) in start_positions]
-                for i in xrange(self.num_views/2):
-                    pic = y[:,start_positions[i][0]:end_positions[i][0],start_positions[i][1]:end_positions[i][1],:]
-                    target[:,i * x.shape[1]:(i+1)* x.shape[1]] = pic.reshape((self.get_data_dims(),x.shape[1]))
-                    target[:,(self.num_views/2 + i) * x.shape[1]:(self.num_views/2 +i+1)* x.shape[1]] = pic[:,:,::-1,:].reshape((self.get_data_dims(),x.shape[1]))
-            else:
-                pic = y[:,self.border_size:self.border_size+self.inner_size,self.border_size:self.border_size+self.inner_size, :] # just take the center for now
-                target[:,:] = pic.reshape((self.get_data_dims(), x.shape[1]))
+            pic = y[:,self.border_size_r:self.border_size_r+self.inner_size,self.border_size_c:self.border_size_c+self.inner_size, :] # just take the center for now
+            target[:,:] = pic.reshape((self.get_data_dims(), x.shape[1]))
         else:
             for c in xrange(x.shape[1]): # loop over cases
-                startY, startX = nr.randint(0,self.border_size*2 + 1), nr.randint(0,self.border_size*2 + 1)
+                startY, startX = nr.randint(0,self.border_size_r*2 + 1), nr.randint(0,self.border_size_c*2 + 1)
                 endY, endX = startY + self.inner_size, startX + self.inner_size
                 pic = y[:,startY:endY,startX:endX, c]
                 if nr.randint(2) == 0: # also flip the image with 50% probability
