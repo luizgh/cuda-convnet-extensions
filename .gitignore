@@ -1,0 +1,9 @@
+*.pyc
+*.cfg
+*.swp
+src/
+sdk/
+bin/
+executions/
+logs/
+models/
