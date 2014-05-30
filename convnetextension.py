@@ -31,10 +31,29 @@ class ConvNetWithAutoStop(ConvNet):
     def print_valid_results(self):
         self.print_costs(self.valid_outputs[-1])
 
+    def hasConverged(self):
+        maxEpochsWithNoImprovement = 20
+
+        if self.epoch < maxEpochsWithNoImprovement:
+            return False
+
+        valid_logprob = [i[0]['logprob'][0] for i in self.valid_outputs]
+        best_so_far = [valid_logprob[i] < min(valid_logprob[0:i]) for i in range(1,len(valid_logprob))]
+        if not any(best_so_far[-maxEpochsWithNoImprovement:]):
+            return True
+        return False
+
+    def hasConverged_valid(self):
+        last_logprob = self.train_outputs[-1][0]['logprob'][0]
+        if last_logprob <= self.target_logprob:
+            return True
+        return False
+
+
     def train(self):
         print "Saving checkpoints to %s" % os.path.join(self.save_path, self.save_file)
         
-        print "training 1000 epochs with <Train> set:"
+        print "training at most 1000 epochs with <Train> set:"
         next_data = self.get_next_batch()
         for i in range(1000):
             data = next_data
@@ -62,6 +81,10 @@ class ConvNetWithAutoStop(ConvNet):
             self.print_train_results()
             self.print_valid_results()
             self.print_train_time(time() - compute_time_py)
+            if self.hasConverged():
+                 self.target_logprob = self.train_outputs[-1][0]['logprob'][0]
+                 print "Stopping at interation %d. Target logprob is %.4f\n" % (self.epoch, self.target_logprob)
+                 break
         
         
         print "training 100 epochs with <Validation> set:"
@@ -82,6 +105,10 @@ class ConvNetWithAutoStop(ConvNet):
             self.train_outputs += [batch_output]
             self.print_train_results()
             self.print_train_time(time() - compute_time_py)
+
+            if self.hasConverged_valid():
+                 print "Stopping at interation %d. " % (self.epoch)
+                 break
         
         print "testing once in the test set:"
         
