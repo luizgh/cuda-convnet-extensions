@@ -1,38 +1,24 @@
-import layer as lay
-from mock import Mock, PropertyMock, MagicMock
+import subprocess
+import sys
 import cPickle
 
+
 class ConvnetModel:
-    def __init__(self, layer_def_file, layer_params_file, train_provider, verbose = False):
-        self.layer_def = layer_def_file
-        self.layer_params = layer_params_file
-        self.minibatch_size = 128
-        self.gpu_device_id = 0
-        self.train_provider = train_provider
-        self.verbose = verbose
-        self.layers = self._BuildLayers()
-        self._InitializeModel()
-        self.train_results =[]
-        
-    def _BuildLayers(self):
-        fakeModel = Mock()
-        myOp = Mock()
-        myOp.get_value.return_value = 0
-        type(fakeModel).train_data_provider = self.train_provider
-        type(fakeModel).op = PropertyMock(return_value = myOp)
-        return lay.LayerParser.parse_layers(self.layer_def, self.layer_params, fakeModel)
-    
-    def _InitializeModel(self):
-        self.libmodel = __import__('_ConvNet')
-        self.libmodel.initModel(self.layers, self.minibatch_size, self.gpu_device_id)
-    
-    def Run(self, nIterations):
-        next_data = self.train_provider.get_next_batch()
-        for i in xrange(nIterations):
-            if self.verbose:
-                print("Running iteration %d of %d" % (i, nIterations))
-            data = next_data
-            self.libmodel.startBatch(data[2], False)
-            next_data = self.train_provider.get_next_batch()
-            thisBatchResult = self.libmodel.finishBatch()
-            self.train_results.append(thisBatchResult)
+    def Run(self, filename, test_output_file, data_path, save_path, 
+             train_range, valid_range, test_range,
+            layer_def_file, layer_params_file, data_provider,
+            patch_size, logfile, iterations_to_wait = '20',  gpu='0', maxEpochs='5000', test_on_images='1'):
+
+        test_freq='1'
+        subprocess.check_call(["python", "convnetextension.py",
+                        "--data-path=" + data_path, "--save-path="+save_path,
+                        "--train-range="+train_range, "--valid-range="+valid_range,
+                        "--test-range="+test_range, "--layer-def="+layer_def_file,
+                        "--layer-params="+layer_params_file, "--data-provider=" + data_provider,
+                        "--test-freq="+test_freq, "--epochs=" + maxEpochs, "--patch-size="+patch_size,
+                        "--gpu="+gpu, "--filename=" + filename, "--test-output-file=" + test_output_file,
+                        "--iterations-to-wait=" + iterations_to_wait,
+                        "--test-on-images=" + test_on_images], stdout = open(logfile,'w'), stderr=sys.stderr)
+
+        result = cPickle.load(open(test_output_file))
+        return result
