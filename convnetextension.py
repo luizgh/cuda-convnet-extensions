@@ -51,9 +51,51 @@ class ConvNetWithAutoStop(ConvNet):
             return True
         return False
 
+    def run_finetuning(self):
+        print "training %d epochs with <Train> and <Valid> sets:" % self.num_epochs
+
+        next_data = self.get_next_batch()
+        for i in range(self.num_epochs):
+            data = next_data
+            self.epoch, self.batchnum = data[0], data[1]
+            self.print_iteration()
+            sys.stdout.flush()
+            
+            compute_time_py = time()
+            self.start_batch(data)
+
+            # load the next validation while the current one is computing
+            validationdata = self.get_next_validation_batch()
+            
+            batch_output = self.finish_batch()
+            self.train_outputs += [batch_output]
+
+            self.start_batch(validationdata, train=True)  #Now backpropagating errors
+
+            # load the next batch while the current one is computing
+
+            next_data = self.get_next_batch()
+
+            batch_output = self.finish_batch()
+            self.valid_outputs += [batch_output]
+            self.print_train_results()
+            self.print_valid_results()
+            self.print_train_time(time() - compute_time_py)
+
+        print "testing once in the test set:"
+        
+        self.sync_with_host()
+        self.test_outputs += [self.get_test_error()]
+        self.print_test_results()
+        self.print_test_status()
+        self.conditional_save()
 
     def train(self):
         print "Saving checkpoints to %s" % os.path.join(self.save_path, self.save_file)
+
+        if (self.finetunning):
+            self.run_finetuning()
+            return
         
         print "training at most %d epochs with <Train> set:" % self.num_epochs
         next_data = self.get_next_batch()
@@ -171,6 +213,7 @@ class ConvNetWithAutoStop(ConvNet):
     @classmethod
     def get_options_parser(cls):
         op = ConvNet.get_options_parser()
+        op.add_option("finetunning", "finetunning", BooleanOptionParser, "Train for specified epochs and exit", default=False)
         op.add_option("valid-range", "valid_batch_range", RangeOptionParser, "Data batch range: validation")
         op.add_option("filename", "filename", StringOptionParser, "Filename")
         op.add_option("test-on-images", "test_on_images", BooleanOptionParser, "Test On Images", default=False)
