@@ -117,7 +117,8 @@ class ShowConvNet(ConvNet):
     
         filter_size = int(sqrt(filters.shape[1]))
         fig = pl.figure(fignum)
-        fig.text(.5, .95, '%s %dx%d filters %d-%d' % (_title, filter_size, filter_size, filter_start, filter_end-1), horizontalalignment='center') 
+        if (self.show_title):
+            fig.text(.5, .95, '%s %dx%d filters %d-%d' % (_title, filter_size, filter_size, filter_start, filter_end-1), horizontalalignment='center') 
         num_filters = filter_end - filter_start
         if not combine_chans:
             bigpic = n.zeros((filter_size * filter_rows + filter_rows + 1, filter_size*num_colors * f_per_row + f_per_row + 1), dtype=n.single)
@@ -203,7 +204,8 @@ class ShowConvNet(ConvNet):
         self.finish_batch()
         
         fig = pl.figure(3)
-        fig.text(.4, .95, '%s test case predictions' % ('Mistaken' if self.only_errors else 'Random'))
+        if (self.show_title):
+            fig.text(.4, .95, '%s test case predictions' % ('Mistaken' if self.only_errors else 'Random'))
         if self.only_errors:
             err_idx = nr.permutation(n.where(preds.argmax(axis=1) != data[1][0,:])[0])[:NUM_IMGS] # what the net got wrong
             data[0], data[1], preds = data[0][:,err_idx], data[1][:,err_idx], preds[err_idx,:]
@@ -330,6 +332,9 @@ class ShowConvNet(ConvNet):
            self.print_confusion_matrix()
         if self.file_accuracy:
            self.print_file_accuracy()
+        
+        if (self.save_to != ""):
+            pl.savefig(self.save_to)
         pl.show()
         sys.exit(0)
             
@@ -352,6 +357,8 @@ class ShowConvNet(ConvNet):
         op.add_option("feature-path", "feature_path", StringOptionParser, "Write test data features to this path (to be used with --write-features)", default="")
         op.add_option("confusion-matrix", "confusion_matrix", BooleanOptionParser, "Prints the confusion matrix (rows: actual classes; cols: predicted classes", default=False)
         op.add_option("file-accuracy", "file_accuracy", BooleanOptionParser, "Prints the accuracy on the patches and on the files (combining all patch predictions for a file)", default=False)
+        op.add_option("save-to", "save_to", StringOptionParser, "Prints values to a file", default="")
+        op.add_option("show-title", "show_title", BooleanOptionParser, "Shows the title on the plots", default=True)
         
         op.options['load_file'].default = None
         return op

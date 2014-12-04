@@ -3,18 +3,26 @@ import cPickle
 
 model = ConvnetModel()
 
-result = []
-cPickle.dump(result, open('executions/genre/full_output.pickle','w'))
+fold = 1
+ranges = ['2','3','1']
 
-for i in range(30):
+train_range= ranges[0]
+valid_range= ranges[1]
+test_range= ranges[2]
+
+result = []
+cPickle.dump(result, open('executions/genre_fold%d/full_output.pickle' % fold,'w'))
+
+for i in [15]:
     print "Running model %d of 30" % (i+1)
     result.append(model.Run(filename = 'genre_%d' % i, 
-          test_output_file = 'executions/genre/output_%d.pickle' % i,
-          data_path = '/home/ppginf/lghafemann/nobackup/data/genreparts/%d' % i,
-          save_path = 'executions/genre', 
-          train_range= '1', valid_range= '2', test_range= '3',
+          test_output_file = 'executions/genre_fold%d/output_%d.pickle' % (fold,i),
+          data_path = '/home/ppginf/lghafemann/nobackup/data/genreparts_folds/%d' % i,
+          save_path = 'executions/genre_fold%d' % fold, 
+          train_range= train_range, valid_range= valid_range, test_range= test_range,
           layer_def_file='./layers/genre-conv.cfg', layer_params_file= './layers/genre-params.cfg',
-          data_provider = 'tree-cropped', patch_size= '48', logfile= 'logs/genre_split_%d' % i))
+          layer_params_finetuning='./layers/genre-params-finetuning.cfg', finetuning_epochs='30',
+          data_provider = 'tree-cropped', patch_size= '48', logfile= 'logs/genre_fold%d_split_%d' % (fold,i)))
 
 
-cPickle.dump(result, open('executions/genre/full_output.pickle','w'))
+cPickle.dump(result, open('executions/genre_fold%d/full_output.pickle' % fold,'w'))

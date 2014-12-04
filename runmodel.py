@@ -8,10 +8,8 @@ result=model.Run(filename = 'genre_2ndt',
           save_path = 'executions', 
           train_range= '1', valid_range= '2', test_range= '3',
           layer_def_file='./layers/genre-conv.cfg', layer_params_file= './layers/genre-params.cfg',
-          layer_params_finetuning='./layers/genre-params-finetuning.cfg', finetuning_epochs='20',
+          layer_params_finetuning='./layers/genre-params-finetuning.cfg', finetuning_epochs='2',
           data_provider = 'tree-cropped', patch_size= '48', logfile= 'logs/genre_split')
 
-
-
-
+print "Accuracy on files: %f" % result['fileAccuracy']
 

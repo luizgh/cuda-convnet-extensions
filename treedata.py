@@ -4,6 +4,11 @@ import numpy.random as nr
 import numpy as n
 import random as r
 
+def ConvertToGrayscale(img): #Should be array(3, X, Y)
+    newImg = img[0] * 0.2126 + img[1] * 0.7152 + img[2] * 0.0722
+    return newImg.reshape(1, newImg.shape[0], newImg.shape[1])
+
+
 class CroppedTREEDataProvider(LabeledMemoryDataProvider):
     def __init__(self, data_dir, batch_range=None, init_epoch=1, init_batchnum=None, dp_params=None, test=False):
         LabeledMemoryDataProvider.__init__(self, data_dir, batch_range, init_epoch, init_batchnum, dp_params, test)
@@ -36,7 +41,19 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
         self.data_mean = self.batch_meta['data_mean'].reshape((self.colors,self.size_r,self.size_c))[:,self.border_size_r:self.border_size_r+self.inner_size,self.border_size_c:self.border_size_c+self.inner_size].reshape((self.get_data_dims(), 1))
 
         #For test, extract the grid patches of the image
-        if self.test:
+    
+    def ConvertMeanToGrayscale(self):
+        data_mean = self.data_mean.reshape(3, self.inner_size, self.inner_size)
+        data_mean_gray =  ConvertToGrayscale(data_mean)
+        return data_mean_gray.reshape(-1, 1)
+
+    def get_patches_and_filenames(self, grayscale = False):
+        if True:
+            if (grayscale):
+                colors = 1
+            else:
+                colors = self.colors
+
             data = self.data_dic[0]
             X = data['data']
             y = data['labels']
@@ -49,13 +66,16 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
             TotalNumberOfImages = X.shape[1]
             TotalNumberOfPatches = TotalNumberOfImages * nPatches_r* nPatches_c
 
-            newX = numpy.zeros((self.colors*patchSize*patchSize, TotalNumberOfPatches))
+            newX = numpy.zeros((colors*patchSize*patchSize, TotalNumberOfPatches))
             newY = numpy.zeros((1, TotalNumberOfPatches))
             patchFilenames = []
 
             currentPatch = 0
             for i in range (TotalNumberOfImages):
                 item = X[:,i].reshape(self.colors,self.size_r,self.size_c)
+                if (grayscale):
+                    item = ConvertToGrayscale(item)
+
                 for row in range(nPatches_r):
                     for col in range(nPatches_c):
                         patch = item[:,row*patchSize:(row+1)*patchSize, col*patchSize: (col+1)*patchSize]
@@ -64,14 +84,17 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
                         patchFilenames.append(filenames[i])
                         currentPatch +=1
 
-            newX = newX - self.data_mean
+            if grayscale:
+                data_mean = self.ConvertMeanToGrayscale()
+            else:
+                data_mean = self.data_mean
+
+            newX = newX - data_mean
             newX = numpy.require(newX, dtype=numpy.float32, requirements='C')
             newY = numpy.require(newY, dtype=numpy.float32, requirements='C')
 
             self.testPatches = [newX, newY]
             self.testPatchFilenames = patchFilenames
-    
-    def get_patches_and_filenames(self):
             epoch, batchnum = self.curr_epoch, self.curr_batchnum
             self.advance_batch()
             return epoch, batchnum, self.testPatches, self.testPatchFilenames
@@ -102,18 +125,13 @@ class CroppedTREEDataProvider(LabeledMemoryDataProvider):
     def trim_borders(self, x, target):
         y = x.reshape(self.colors, self.size_r, self.size_c, x.shape[1])
 
-        if self.test: # don't need to loop over cases
-            pic = y[:,self.border_size_r:self.border_size_r+self.inner_size,self.border_size_c:self.border_size_c+self.inner_size, :] # just take the center for now
-            target[:,:] = pic.reshape((self.get_data_dims(), x.shape[1]))
-        else:
-            for c in xrange(x.shape[1]): # loop over cases
-                startY, startX = nr.randint(0,self.border_size_r*2 + 1), nr.randint(0,self.border_size_c*2 + 1)
-                endY, endX = startY + self.inner_size, startX + self.inner_size
-                pic = y[:,startY:endY,startX:endX, c]
-                if nr.randint(2) == 0: # also flip the image with 50% probability
-                    pic = pic[:,:,::-1]
-                target[:,c] = pic.reshape((self.get_data_dims(),))
-
+        for c in xrange(x.shape[1]): # loop over cases
+            startY, startX = nr.randint(0,self.border_size_r*2 + 1), nr.randint(0,self.border_size_c*2 + 1)
+            endY, endX = startY + self.inner_size, startX + self.inner_size
+            pic = y[:,startY:endY,startX:endX, c]
+            if nr.randint(2) == 0: # also flip the image with 50% probability
+                pic = pic[:,:,::-1]
+            target[:,c] = pic.reshape((self.get_data_dims(),))
 
 class TREEDataProvider(LabeledMemoryDataProvider):
     def __init__(self, data_dir, batch_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):

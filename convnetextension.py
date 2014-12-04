@@ -1,6 +1,7 @@
 from convnet import *
 import cPickle
 from MLTools import ModelEvaluation
+from time import asctime, localtime, strftime
 
 class ConvNetWithAutoStop(ConvNet):
     def __init__(self, op, load_dic, dp_params={}):
@@ -35,15 +36,18 @@ class ConvNetWithAutoStop(ConvNet):
 
     def hasConverged(self):
         maxEpochsWithNoImprovement = self.iterations_to_wait
-
-        if self.epoch < maxEpochsWithNoImprovement:
+        
+        last_valid_logprob = self.valid_outputs[-1][0]['logprob'][0]
+            
+        if last_valid_logprob < self.best_valid_logprob:
+            self.best_valid_logprob = last_valid_logprob
+            self.best_epoch = self.epoch
             return False
-
-        valid_logprob = [i[0]['logprob'][0] for i in self.valid_outputs]
-        best_so_far = [valid_logprob[i] < min(valid_logprob[0:i]) for i in range(1,len(valid_logprob))]
-        if not any(best_so_far[-maxEpochsWithNoImprovement:]):
-            return True
-        return False
+        else:
+            if self.epoch - self.best_epoch < maxEpochsWithNoImprovement:
+                return False
+            else:
+                return True
 
     def hasConverged_valid(self):
         last_logprob = self.valid_outputs[-1][0]['logprob'][0]
@@ -82,6 +86,9 @@ class ConvNetWithAutoStop(ConvNet):
             self.print_valid_results()
             self.print_train_time(time() - compute_time_py)
 
+            if (i % 50 == 0):
+                self.conditional_save()
+
         print "testing once in the test set:"
         
         self.sync_with_host()
@@ -90,9 +97,26 @@ class ConvNetWithAutoStop(ConvNet):
         self.print_test_status()
         self.conditional_save()
 
+    def print_iteration(self):
+        print "%s %d.%d..." % (strftime("%H:%M:%S"), self.epoch, self.batchnum),
+    
     def train(self):
+        print "========================="
+        print "Training %s" % self.model_name
+        self.op.print_values()
+        print "========================="
+        self.print_model_state()
+        print "Running on CUDA device(s) %s" % ", ".join("%d" % d for d in self.device_ids)
+        print "Current time: %s" % asctime(localtime())
         print "Saving checkpoints to %s" % os.path.join(self.save_path, self.save_file)
+        print "========================="
 
+        self.best_valid_logprob = 1e100
+        self.best_epoch = 0
+
+        if (self.test_only):
+            self.test_once()
+            return
         if (self.finetunning):
             self.run_finetuning()
             return
@@ -121,6 +145,10 @@ class ConvNetWithAutoStop(ConvNet):
             next_data = self.get_next_batch()
 
             batch_output = self.finish_batch()
+
+            if (i % 50 == 0):
+                self.conditional_save()
+
             self.valid_outputs += [batch_output]
             self.print_train_results()
             self.print_valid_results()
@@ -166,7 +194,9 @@ class ConvNetWithAutoStop(ConvNet):
                  break
         
         print "testing once in the test set:"
+        self.test_once()
         
+    def test_once(self):
         self.sync_with_host()
         self.test_outputs += [self.get_test_error()]
         self.print_test_results()
@@ -204,7 +234,7 @@ class ConvNetWithAutoStop(ConvNet):
             results =  ({'logprob' : [test_results[0]['logprob'][0], (1-fileAccuracy) * test_results[1]]}, test_results[1])
             if self.test_only: # Print the individual batch results for safety
                 print str(results)
-            cPickle.dump({'fileProbs' : fileProbs, 'fileLabels' : fileLabels, 'fileIDs': fileIDs}, open(self.test_output_file,'w'))
+            cPickle.dump({'fileProbs' : fileProbs, 'fileLabels' : fileLabels, 'fileIDs': fileIDs, 'fileAccuracy' : fileAccuracy}, open(self.test_output_file,'w'))
         else:
             print 'not testing on images'
             self.libmodel.startBatch(data, True)
